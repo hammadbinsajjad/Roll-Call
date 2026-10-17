@@ -17,9 +17,10 @@ with its details and commits, and maps each user to what they did:
 import json
 import os
 import re
-from datetime import date, datetime, time, timedelta, timezone
-from urllib.parse import urlencode
-from urllib.request import Request, urlopen
+import time
+from datetime import date, datetime, timezone
+
+import requests
 
 BASE_URL = "https://api.github.com"
 USER_AGENT = "roll-call-ingestion/0.1 (supperhammad2002@gmail.com)"  # GitHub asks every client to send a meaningful User-Agent
@@ -29,22 +30,31 @@ class GitHubError(RuntimeError):
     pass
 
 
+_session = requests.Session()  # one session reuses connections across all pages
+
+
 def _request(path, params=None):
     url = BASE_URL + path
-    if params:
-        url += "?" + urlencode(params)
-    req = Request(url, headers={"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT})
+    headers = {"Accept": "application/vnd.github+json", "User-Agent": USER_AGENT}
     token = os.getenv("GITHUB_TOKEN")
     if token:
-        req.add_header("Authorization", f"Bearer {token}")
-    try:
-        with urlopen(req, timeout=30) as resp:
-            return json.load(resp), resp.headers
-    except Exception as exc:
-        raise GitHubError(
-            f"GitHub request failed: {url} ({exc}). "
-            "Set GITHUB_TOKEN to avoid unauthenticated rate limits."
-        ) from exc
+        headers["Authorization"] = f"Bearer {token}"
+    last_exc = None
+    for attempt in range(3):  # transient network errors (dropped/truncated responses) are common
+        try:
+            resp = _session.get(url, params=params, headers=headers, timeout=30)
+            resp.raise_for_status()  # real API error (401/403/422...): no point retrying
+            return resp.json(), resp.headers
+        except requests.HTTPError as exc:
+            last_exc = exc
+            break
+        except requests.RequestException as exc:  # connection drops, truncated reads, timeouts
+            last_exc = exc
+            time.sleep(1 * (attempt + 1))
+    raise GitHubError(
+        f"GitHub request failed: {url} ({last_exc}). "
+        "Set GITHUB_TOKEN to avoid unauthenticated rate limits."
+    ) from last_exc
 
 
 def _paged(path, params=None):
