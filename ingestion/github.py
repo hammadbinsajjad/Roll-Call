@@ -138,6 +138,7 @@ def pr_record(details, commits, day):
     return {
         "number": details["number"],
         "title": details["title"],
+        "body": details.get("body"),  # PR description (may be None if none was written)
         "state": details["state"],
         "merged": details.get("merged", False),
         "draft": details.get("draft", False),
