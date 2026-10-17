@@ -164,7 +164,7 @@ def issues_touched_today(day):
         after = conn["pageInfo"]["endCursor"]
 
 
-def collect_activity(users_file, day=None):
+def collect_linear_activity(users_file, day=None):
     """Map every user in users_file to their Linear issue work today."""
     day = day or datetime.now(timezone.utc).date()
     from github import read_lines  # same users.txt format as the GitHub ingestion
@@ -190,4 +190,4 @@ if __name__ == "__main__":
     load_dotenv()
     here = Path(__file__).resolve().parent
     import json
-    print(json.dumps(collect_activity(here / "users.txt"), indent=2))
+    print(json.dumps(collect_linear_activity(here / "users.txt"), indent=2))

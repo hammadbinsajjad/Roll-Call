@@ -165,7 +165,7 @@ def repo_prs_today(repo, day):
     return prs
 
 
-def collect_activity(repos_file, users_file, day=None):
+def collect_github_activity(repos_file, users_file, day=None):
     """Map every user in users.txt to their PR work today on repos.txt repos."""
     day = day or datetime.now(timezone.utc).date()
     users = read_lines(users_file)
@@ -193,5 +193,5 @@ if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv()
     here = Path(__file__).resolve().parent
-    data = collect_activity(here / "repos.txt", here / "users.txt")
+    data = collect_github_activity(here / "repos.txt", here / "users.txt")
     print(json.dumps(data, indent=2))
