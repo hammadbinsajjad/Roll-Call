@@ -1,7 +1,7 @@
 """GitHub PR activity collector.
 
-Reads repos.txt (one "owner/repo" per line) and users.txt (one GitHub
-username or email per line), pulls every PR touched today on each repo
+Takes a list of repos ("owner/repo") and a list of user identifiers
+(GitHub usernames or emails), pulls every PR touched today on each repo
 with its details and commits, and maps each user to what they did:
 
     {
@@ -73,16 +73,6 @@ def _paged(path, params=None):
         params = dict(pair.split("=", 1) for pair in query.split("&"))
 
 
-def read_lines(path):
-    lines = []
-    with open(path, encoding="utf-8") as fh:
-        for line in fh:
-            line = line.strip()
-            if line and not line.startswith("#"):
-                lines.append(line)
-    return lines
-
-
 def _is_today(iso_ts, day):
     """GitHub timestamps are ISO 8601 in UTC; 'today' means the UTC day."""
     return iso_ts[:10] == day.isoformat()
@@ -143,6 +133,7 @@ def pr_record(details, commits, day):
         "merged": details.get("merged", False),
         "draft": details.get("draft", False),
         "html_url": details["html_url"],
+        "branch": (details.get("head") or {}).get("ref"),  # needed to link PRs to Linear issues by branch name
         "author": (details.get("user") or {}).get("login"),
         "created_at": details["created_at"],
         "updated_at": details["updated_at"],
@@ -165,13 +156,16 @@ def repo_prs_today(repo, day):
     return prs
 
 
-def collect_github_activity(repos_file, users_file, day=None):
-    """Map every user in users.txt to their PR work today on repos.txt repos."""
+def collect_github_activity(repos, users, day=None):
+    """Map every user id to their PR work today on the given repos.
+
+    repos: ["owner/repo", ...], users: ["login or email", ...] — same
+    shapes db.get_repos() / db.get_team_members() deliver.
+    """
     day = day or datetime.now(timezone.utc).date()
-    users = read_lines(users_file)
     activity = {u.lower(): {"username": u, "repos": {}} for u in users}
 
-    for repo in read_lines(repos_file):
+    for repo in repos:
         if "/" not in repo:
             print(f"skipping malformed repo line: {repo!r} (expected owner/repo)")
             continue
@@ -189,9 +183,11 @@ def collect_github_activity(repos_file, users_file, day=None):
 
 
 if __name__ == "__main__":
-    from pathlib import Path
+    # standalone debugging: hardcoded sample values, same as db.py placeholders
     from dotenv import load_dotenv
     load_dotenv()
-    here = Path(__file__).resolve().parent
-    data = collect_github_activity(here / "repos.txt", here / "users.txt")
+    data = collect_github_activity(
+        ["hammadbinsajjad/Roll-Call"],
+        ["hammadbinsajjad", "supperhammad2002@gmail.com"],
+    )
     print(json.dumps(data, indent=2))

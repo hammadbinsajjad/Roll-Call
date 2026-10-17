@@ -1,35 +1,143 @@
-"""LLM integration layer.
+"""LLM integration layer (OpenAI-style chat API via the official SDK).
 
-Deliberately SDK-agnostic: once you pick a provider (OpenAI SDK,
-google-genai, etc.), replace the body of build_report() with the real
-API call and add any config (base URL, model name, key from env).
+Configuration, from llm/.env or the environment:
+  - OPENAI_API_KEY    (required)
+  - LLM_BASE_URL      (optional, defaults to OpenAI's own API)
+  - LLM_MODEL         (optional, defaults to the placeholder below)
+
+LLM-side only: ingestion.py provides the team members and both
+ingestions' data, and handles storage of this layer's returned results.
 """
 
+import json
+import os
+
+from openai import OpenAI
+
+DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
+
 SYSTEM_PROMPT = (
-    "You are Roll-Call's reporting assistant. You receive raw developer "
-    "activity collected from GitHub (and possibly other sources) and turn "
-    "it into a clear human-readable daily report per developer."
+    "You are Roll-Call's reporting assistant. For one team member you "
+    "receive, for a single day: their GitHub pull requests with today's "
+    "commits, and their Linear issues with today's comments. "
+    "Cross-links are precomputed: a linear issue is related to a PR when "
+    "the issue name appears as a whole or as a substring in the PR title "
+    "or branch name (case-insensitive); each PR lists the identifiers of "
+    "issue(s) it relates to in 'related_issues', and each issue lists the "
+    "PR numbers it relates to in 'related_pull_requests'. "
+    "Write a clear, human-readable daily work summary for this member in "
+    "plain English: what they worked on, connecting each issue to the "
+    "PRs, branch and commits that implement it. Only state what the data "
+    "shows; do not invent activity."
 )
 
 
-def build_report(github_activity: dict, other_activity: dict | None) -> str:
-    """Send both ingestions to the LLM and return the human-readable report.
+class LLMError(RuntimeError):
+    pass
 
-    Expected input shape:
-      github_activity: {"<user>": {"username": ..., "repos": {"<owner/repo>": {"pull_requests": [...]}}}}
-      other_activity:  same kind of nested mapping from the second source, or None
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            raise LLMError("OPENAI_API_KEY is not set (ingestion/.env or environment).")
+        _client = OpenAI(
+            api_key=api_key,
+            base_url=os.getenv("LLM_BASE_URL") or DEFAULT_BASE_URL,
+        )
+    return _client
+
+
+def _activity_entry(activity, identifier):
+    """One user's entry from either ingestion, case-insensitive by key."""
+    return activity.get((identifier or "").lower(), {})
+
+
+def prs_for_member(member, github_activity):
+    """The member's PRs from today's GitHub ingestion, keyed by username."""
+    entry = _activity_entry(github_activity, member.get("github_username"))
+    return [
+        pr
+        for repo_data in (entry.get("repos") or {}).values()
+        for pr in repo_data["pull_requests"]
+    ]
+
+
+def issues_for_member(member, linear_activity):
+    """The member's issues from today's Linear ingestion, keyed by email."""
+    entry = _activity_entry(linear_activity, member.get("linear_email"))
+    return [
+        issue
+        for team_data in (entry.get("teams") or {}).values()
+        for issue in team_data["issues"]
+    ]
+
+
+def link_issues_to_prs(prs, issues):
+    """Pair issues with PRs by issue identifier (e.g. ROLL-5) or issue name
+    appearing in the PR title or branch name, case-insensitive, whole or
+    substring; annotate both sides."""
+    prs_out = [{**p, "related_issues": []} for p in prs]
+    issues_out = [{**i, "related_pull_requests": []} for i in issues]
+    for issue, issue_out in zip(issues, issues_out):
+        name = (issue.get("title") or "").lower()
+        identifier = (issue.get("identifier") or "").lower()
+        for pr, pr_out in zip(prs, prs_out):
+            hay = f"{(pr.get('title') or '')} {(pr.get('branch') or '')}".lower()
+            if (identifier and identifier in hay) or (name and name in hay):
+                issue_out["related_pull_requests"].append(pr["number"])
+                pr_out["related_issues"].append(issue["identifier"])
+    return prs_out, issues_out
+
+
+def member_payload(member, github_activity, linear_activity):
+    """Assemble one member's combined LLM input from both ingestions."""
+    issues = issues_for_member(member, linear_activity)
+    prs, issues = link_issues_to_prs(prs_for_member(member, github_activity), issues)
+    return {
+        "member_name": member.get("member_name"),
+        "github_username": member.get("github_username"),
+        "linear_email": member.get("linear_email"),
+        "pull_requests": prs,
+        "issues": issues,
+    }
+
+
+def build_member_report(member, payload):
+    """Send one member's combined payload to the LLM; returns the summary."""
+    try:
+        resp = _get_client().chat.completions.create(
+            model=os.getenv("LLM_MODEL") or DEFAULT_MODEL,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+        )
+        summary = resp.choices[0].message.content
+    except Exception as exc:
+        raise LLMError(f"LLM API call failed for {member.get('member_name')}: {exc}") from exc
+    return summary  # storage happens once, in build_report's loop
+
+
+def build_reports(members, github_activity: dict, linear_activity: dict) -> list:
+    """One LLM call per team member. Returns one dict per member:
+
+        {"member": <member>, "input_data": <payload>, "summary": <str>}
+
+    Members with no recorded work get a fixed summary and skip the
+    (paid) LLM call, but their day is still returned for storage.
     """
-    # TODO: implement once an LLM SDK is chosen. Sketch (OpenAI-style):
-    #   client = OpenAI()  # reads OPENAI_API_KEY from env
-    #   resp = client.chat.completions.create(
-    #       model="gpt-4o-mini",
-    #       messages=[
-    #           {"role": "system", "content": SYSTEM_PROMPT},
-    #           {"role": "user", "content": json.dumps({
-    #               "github": github_activity,
-    #               "other": other_activity,
-    #           })},
-    #       ],
-    #   )
-    #   return resp.choices[0].message.content
-    raise NotImplementedError("pick an LLM SDK and implement build_report()")
+    results = []
+    for member in members:
+        payload = member_payload(member, github_activity, linear_activity)
+        if not payload["pull_requests"] and not payload["issues"]:
+            summary = "No activity recorded today."
+        else:
+            summary = build_member_report(member, payload)
+        results.append({"member": member, "input_data": payload, "summary": summary})
+    return results

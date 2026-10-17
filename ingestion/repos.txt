@@ -1,2 +1,0 @@
-# One "owner/repo" per line
-hammadbinsajjad/Roll-Call

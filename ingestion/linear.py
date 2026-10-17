@@ -1,9 +1,9 @@
 """Linear issue activity collector (second ingestion source).
 
-Reads users.txt (same file github.py uses; Linear keys people by email,
-non-email lines are matched against real/display names), pulls every
-issue touched today (GraphQL filter on updatedAt) with its comments,
-and maps each user to what they did:
+Takes a list of user identifiers (emails primarily; non-email lines are
+matched against real/display names), pulls every issue touched today
+(GraphQL filter on updatedAt) with its comments, and maps each user to
+what they did:
 
     {
         "<user>": {
@@ -164,11 +164,12 @@ def issues_touched_today(day):
         after = conn["pageInfo"]["endCursor"]
 
 
-def collect_linear_activity(users_file, day=None):
-    """Map every user in users_file to their Linear issue work today."""
+def collect_linear_activity(users, day=None):
+    """Map every user id to their Linear issue work today.
+
+    users: ["email", ...] — same ids db.get_team_members() delivers.
+    """
     day = day or datetime.now(timezone.utc).date()
-    from github import read_lines  # same users.txt format as the GitHub ingestion
-    users = read_lines(users_file)
     activity = {u.lower(): {"username": u, "teams": {}} for u in users}
 
     for node in issues_touched_today(day):
@@ -185,9 +186,8 @@ def collect_linear_activity(users_file, day=None):
 
 
 if __name__ == "__main__":
-    from pathlib import Path
+    # standalone debugging: hardcoded sample ids, same as db.py placeholders
     from dotenv import load_dotenv
     load_dotenv()
-    here = Path(__file__).resolve().parent
     import json
-    print(json.dumps(collect_linear_activity(here / "users.txt"), indent=2))
+    print(json.dumps(collect_linear_activity(["supperhammad2002@gmail.com"]), indent=2))
