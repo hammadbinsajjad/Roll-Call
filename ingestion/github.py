@@ -190,6 +190,8 @@ def collect_activity(repos_file, users_file, day=None):
 
 if __name__ == "__main__":
     from pathlib import Path
+    from dotenv import load_dotenv
+    load_dotenv()
     here = Path(__file__).resolve().parent
     data = collect_activity(here / "repos.txt", here / "users.txt")
     print(json.dumps(data, indent=2))

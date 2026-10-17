@@ -8,12 +8,13 @@ the human-readable daily report.
 from dotenv import load_dotenv
 
 from github import collect_activity
+from linear import collect_activity as collect_linear_activity
 from llm import build_report
 
 
-def collect_other_activity() -> dict | None:
-    """Second ingestion source. TODO: implement."""
-    return None
+def collect_other_activity() -> dict:
+    """Second ingestion source: Linear issues (linear.py)."""
+    return collect_linear_activity("users.txt")
 
 
 def main():
