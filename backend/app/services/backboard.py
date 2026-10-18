@@ -59,6 +59,13 @@ def _first_str(data, keys):
     return None
 
 
+def _strip_thought(text: str) -> str:
+    """Drop the leading 'thought' header line the gemma/openrouter models leak
+    into visible content (e.g. 'thought\nBased on the logs ...')."""
+    first, _, rest = text.partition("\n")
+    return rest.lstrip("\n") if first.strip().lower() == "thought" else text
+
+
 def send_message(content: str, thread_id: str | None = None,
                  tools: list | None = None, tool_executor=None) -> tuple[str, str | None]:
     """Send one chat turn. Returns (reply_text, thread_id).
@@ -126,10 +133,10 @@ n    itself — we run tool_executor locally and submit outputs
     reply = _first_str(data, ("reply", "content", "text", "message"))
     if not reply:
         raise BackboardError(f"unexpected Backboard response shape: {list(data)!r}")
-    new_thread_id = data.get("thread_id")
+    new_thread_id = data.get("thread_id") or thread_id
     if not new_thread_id and isinstance(data.get("thread"), dict):
         new_thread_id = data["thread"].get("id")
-    return reply, new_thread_id
+    return _strip_thought(reply), new_thread_id
 
 
 def get_thread_messages(thread_id: str) -> list[dict]:
@@ -154,9 +161,12 @@ def get_thread_messages(thread_id: str) -> list[dict]:
         role = item.get("role")
         if not role and item.get("is_assistant") is not None:
             role = "assistant" if item.get("is_assistant") else "user"
+        if role not in ("user", "assistant"):
+            # role 'tool' holds raw tool output — never shown as a chat message
+            continue
         messages.append({
-            "role": role or "assistant",
-            "content": content,
+            "role": role,
+            "content": _strip_thought(content),
             "created_at": item.get("created_at"),
         })
     return messages
