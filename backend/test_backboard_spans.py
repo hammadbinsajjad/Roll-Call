@@ -60,8 +60,14 @@ def _fake_post(path, json_body=None, timeout=60.0):
     _calls["path"], _calls["body"] = path, json_body
     return SimpleNamespace(
         status_code=200,
-        content=b'{"reply":"hi","thread_id":"t1"}',
-        json=lambda: {"reply": "hi", "thread_id": "t1"},
+        content=b'{"reply":"hi","thread_id":"t1","model_name":"gpt-4o",'
+                b'"input_tokens":637,"output_tokens":11,"total_tokens":648,'
+                b'"context_usage":{"percent":0.6}}',
+        json=lambda: {
+            "reply": "hi", "thread_id": "t1", "model_name": "gpt-4o",
+            "input_tokens": 637, "output_tokens": 11, "total_tokens": 648,
+            "context_usage": {"percent": 0.6},
+        },
     )
 
 
@@ -82,6 +88,13 @@ try:
     out = json.loads(span.data["gen_ai.output.messages"])
     assert out[0]["role"] == "assistant" and out[0]["parts"][0]["content"] == "hi"
     assert _calls["path"] == "/threads/messages" and _calls["body"]["thread_id"] == "t1"
+
+    # usage recorded from the response (probed live against app.backboard.io)
+    assert span.data["gen_ai.response.model"] == "gpt-4o"
+    assert span.data["gen_ai.usage.input_tokens"] == 637
+    assert span.data["gen_ai.usage.output_tokens"] == 11
+    assert span.data["gen_ai.usage.total_tokens"] == 648
+    assert span.data["gen_ai.context_utilization.percent"] == 0.6
 
     # failure path: the span must be marked for Sentry's error widgets
     def _fail(path, json_body=None, timeout=60.0):

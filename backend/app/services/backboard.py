@@ -125,6 +125,14 @@ n    itself — we run tool_executor locally and submit outputs
             _span_error(span, f"HTTP{resp.status_code}")
             raise BackboardError(f"Backboard returned {resp.status_code}")
         data = resp.json() if resp.content else {}
+        # usage + concrete model come with the first response (probed live)
+        span.set_data("gen_ai.response.model", data.get("model_name"))
+        span.set_data("gen_ai.usage.input_tokens", data.get("input_tokens"))
+        span.set_data("gen_ai.usage.output_tokens", data.get("output_tokens"))
+        span.set_data("gen_ai.usage.total_tokens", data.get("total_tokens"))
+        ctx = data.get("context_usage") or {}
+        if ctx.get("percent") is not None:
+            span.set_data("gen_ai.context_utilization.percent", ctx["percent"])
 
         for _ in range(5):  # bounded: model may chain tool rounds
             if data.get("status") != "REQUIRES_ACTION" or not data.get("tool_calls"):
