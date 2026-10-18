@@ -1,12 +1,11 @@
 name: Daily ingestion
 
 on:
-  # Automatic nightly runs are disabled while the project is in development,
-  # so an incomplete run can never write partial data to the DB unnoticed.
-  # Uncomment to re-enable the daily 01:00 UTC schedule.
-  # schedule:
-  #   - cron: '0 1 * * *' # 01:00 UTC, daily
-  workflow_dispatch: # manual trigger only, for now
+  # Nightly 01:00 UTC: reports the completed previous day (the ingestion-day
+  # step below sets INGESTION_DAY to yesterday for scheduled runs).
+  schedule:
+    - cron: '0 1 * * *' # 01:00 UTC, daily
+  workflow_dispatch: # manual trigger
 
 concurrency:
   group: daily-ingestion
@@ -20,8 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
 
-    # Both `from github import ...` (local github.py) and the relative
-    # "repos.txt" / "users.txt" paths require ingestion/ to be the cwd.
+    # working-directory is still required: `python ingestion.py` resolves
+    # its sibling modules (github/linear/llm/db) via the cwd.
     defaults:
       run:
         working-directory: ingestion
@@ -36,11 +35,26 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # load_dotenv() finds no .env on a CI runner (it's gitignored), which is
-      # fine -- it no-ops and the values below satisfy os.getenv() instead.
+      # load_dotenv() finds no .env on a CI runner (gitignored) — it no-ops
+      # and these env values satisfy os.getenv() instead. Secrets required:
+      #   GITHUB_TOKEN_SECRET   (PAT, "Pull requests: read" is enough)
+      #   LINEAR_TOKEN          (lin_api_... personal key)
+      #   MONGO_DB_CONNECTION_STRING
+      #   LLM_API_KEY           (OpenRouter / provider key)
+      #   LLM_BASE_URL, LLM_MODEL  (repo *variables* — not secret, expected
+      #                            to change with the provider/model)
+      - name: Compute ingestion day
+        # scheduled runs report the completed previous day; manual runs keep
+        # today (delete this step's `if` to test yesterday's report by hand)
+        if: github.event_name == 'schedule'
+        run: echo "INGESTION_DAY=$(date -u -d yesterday +%F)" >> "$GITHUB_ENV"
+
       - name: Run ingestion
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # TODO: add once the DB layer exists, e.g.
-          #   DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          GITHUB_TOKEN: ${{ secrets.GH_TOKEN_SECRET }}
+          LINEAR_TOKEN: ${{ secrets.LINEAR_TOKEN }}
+          MONGO_DB_CONNECTION_STRING: ${{ secrets.MONGO_DB_CONNECTION_STRING }}
+          LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
+          LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
+          LLM_MODEL: ${{ vars.LLM_MODEL }}
         run: python ingestion.py
