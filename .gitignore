@@ -10,6 +10,7 @@ dist/
 .venv/
 venv/
 env/
+.*-venv/
 
 # Environment / secrets
 .env
@@ -32,3 +33,7 @@ htmlcov/
 # OS
 .DS_Store
 Thumbs.db
+
+
+# temp
+temp/

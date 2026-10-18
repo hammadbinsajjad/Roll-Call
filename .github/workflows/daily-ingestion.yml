@@ -1,0 +1,46 @@
+name: Daily ingestion
+
+on:
+  # Automatic nightly runs are disabled while the project is in development,
+  # so an incomplete run can never write partial data to the DB unnoticed.
+  # Uncomment to re-enable the daily 01:00 UTC schedule.
+  # schedule:
+  #   - cron: '0 1 * * *' # 01:00 UTC, daily
+  workflow_dispatch: # manual trigger only, for now
+
+concurrency:
+  group: daily-ingestion
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # Both `from github import ...` (local github.py) and the relative
+    # "repos.txt" / "users.txt" paths require ingestion/ to be the cwd.
+    defaults:
+      run:
+        working-directory: ingestion
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      # load_dotenv() finds no .env on a CI runner (it's gitignored), which is
+      # fine -- it no-ops and the values below satisfy os.getenv() instead.
+      - name: Run ingestion
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # TODO: add once the DB layer exists, e.g.
+          #   DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python ingestion.py
