@@ -43,6 +43,9 @@ jobs:
       #   LLM_API_KEY           (OpenRouter / provider key)
       #   LLM_BASE_URL, LLM_MODEL  (repo *variables* — not secret, expected
       #                            to change with the provider/model)
+      #   SERVICE_TOKEN            (shared with the backend's Render env)
+      #   BACKEND_EMBED_URL        (repo *variable* — backend base URL, e.g.
+      #                             https://roll-call-api.onrender.com)
       - name: Compute ingestion day
         # scheduled runs report the completed previous day; manual runs keep
         # today (delete this step's `if` to test yesterday's report by hand)
@@ -57,4 +60,8 @@ jobs:
           LLM_API_KEY: ${{ secrets.LLM_API_KEY }}
           LLM_BASE_URL: ${{ vars.LLM_BASE_URL }}
           LLM_MODEL: ${{ vars.LLM_MODEL }}
+          SERVICE_TOKEN: ${{ secrets.SERVICE_TOKEN }}
+          BACKEND_EMBED_URL: ${{ vars.BACKEND_EMBED_URL }}
+          SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+          SENTRY_TRACES_SAMPLE_RATE: ${{ vars.SENTRY_TRACES_SAMPLE_RATE }}
         run: python ingestion.py

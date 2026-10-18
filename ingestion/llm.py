@@ -15,6 +15,7 @@ import json
 import os
 
 import litellm
+import sentry_sdk
 
 MODEL = "unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL"  # litellm routes bare names to OpenAI by default
 
@@ -62,17 +63,36 @@ def _llm_config():
 
 def build_member_report(member, payload):
     """Send one member's combined payload to the LLM; returns the summary."""
-    try:
-        resp = litellm.completion(
-            **_llm_config(),
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload)},
-            ],
-        )
-        summary = resp.choices[0].message.content
-    except Exception as exc:
-        raise LLMError(f"LLM API call failed for {member.get('member_name')}: {exc}") from exc
+    # gen_ai.invoke_agent wraps one report run; the LiteLLM integration's
+    # gen_ai.chat span (litellm.completion) nests under it. Sentry is a no-op
+    # unless ingestion.main ran sentry_sdk.init with a SENTRY_DSN.
+    with sentry_sdk.start_span(
+        op="gen_ai.invoke_agent", name="invoke_agent Report Writer"
+    ) as span:
+        # shortcut: docs show an attributes= kwarg; it lands after 2.72.0, so
+        # set_data until the SDK catches up. Set before the call (span start).
+        span.set_data("gen_ai.operation.name", "invoke_agent")
+        span.set_data("gen_ai.agent.name", "Report Writer")
+        span.set_data("gen_ai.system_instructions", SYSTEM_PROMPT)
+        span.set_data("gen_ai.input.messages", json.dumps([
+            {"role": "user", "parts": [{"type": "text", "content": json.dumps(payload)}]},
+        ]))
+        try:
+            resp = litellm.completion(
+                **_llm_config(),
+                messages=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": json.dumps(payload)},
+                ],
+            )
+            summary = resp.choices[0].message.content
+        except Exception as exc:
+            span.set_status("internal_error")
+            span.set_data("error.type", type(exc).__name__)
+            raise LLMError(f"LLM API call failed for {member.get('member_name')}: {exc}") from exc
+        span.set_data("gen_ai.output.messages", json.dumps([
+            {"role": "assistant", "parts": [{"type": "text", "content": str(summary)}]},
+        ]))
     return summary  # storage happens once, in build_report's loop
 
 

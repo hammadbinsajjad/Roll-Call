@@ -2,3 +2,4 @@ python-dotenv
 requests
 litellm
 pymongo
+sentry-sdk
