@@ -1,9 +1,11 @@
-"""LLM integration layer (OpenAI-style chat API via the official SDK).
+"""LLM integration layer via litellm — one API for any provider.
 
-Configuration, from llm/.env or the environment:
-  - OPENAI_API_KEY    (required)
-  - LLM_BASE_URL      (optional, defaults to OpenAI's own API)
-  - LLM_MODEL         (optional, defaults to the placeholder below)
+Configuration, from ingestion/.env or environment:
+  - LLM_API_KEY    (required; falls back to OPENAI_API_KEY for backward compat)
+  - LLM_MODEL      (provider-prefixed, e.g. "openrouter/google/gemma-3-27b-it"
+                   for OpenRouter, "openai/gemma-3-27b-it" + LLM_BASE_URL for a
+                   local server; defaults to the placeholder below)
+  - LLM_BASE_URL   (api base for self-hosted/OpenAI-compatible endpoints)
 
 LLM-side only: ingestion.py provides the team members and both
 ingestions' data, and handles storage of this layer's returned results.
@@ -12,10 +14,9 @@ ingestions' data, and handles storage of this layer's returned results.
 import json
 import os
 
-from openai import OpenAI
+import litellm
 
-DEFAULT_MODEL = "gpt-4o-mini"
-DEFAULT_BASE_URL = "https://api.openai.com/v1"
+MODEL = "unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL"  # litellm routes bare names to OpenAI by default
 
 SYSTEM_PROMPT = (
     "You are Roll-Call's reporting assistant. For one team member you "
@@ -37,25 +38,52 @@ class LLMError(RuntimeError):
     pass
 
 
-_client = None
-
-
-def _get_client():
-    global _client
-    if _client is None:
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            raise LLMError("OPENAI_API_KEY is not set (ingestion/.env or environment).")
-        _client = OpenAI(
-            api_key=api_key,
-            base_url=os.getenv("LLM_BASE_URL") or DEFAULT_BASE_URL,
+def _llm_config():
+    api_key = os.getenv("LLM_API_KEY") or os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise LLMError(
+            "LLM_API_KEY is not set (ingestion/.env or environment). "
+            "OPENAI_API_KEY is also accepted."
         )
-    return _client
+    model = os.getenv("LLM_MODEL") or MODEL
+    api_base = os.getenv("LLM_BASE_URL") or None
+    if api_base:
+        # OpenAI-compatible endpoint (local Gemma server etc.): litellm needs
+        # an explicit provider; add "openai/" unless one is present already.
+        try:
+            litellm.get_llm_provider(model=model)
+        except Exception:
+            model = f"openai/{model}"
+    return {"model": model, "api_key": api_key, "api_base": api_base}
 
 
-def _activity_entry(activity, identifier):
-    """One user's entry from either ingestion, case-insensitive by key."""
-    return activity.get((identifier or "").lower(), {})
+def build_member_report(member, payload):
+    """Send one member's combined payload to the LLM; returns the summary."""
+    try:
+        resp = litellm.completion(
+            **_llm_config(),
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": json.dumps(payload)},
+            ],
+        )
+        summary = resp.choices[0].message.content
+    except Exception as exc:
+        raise LLMError(f"LLM API call failed for {member.get('member_name')}: {exc}") from exc
+    return summary  # storage happens once, in build_report's loop
+
+
+def member_payload(member, github_activity, linear_activity):
+    """Assemble one member's combined LLM input from both ingestions."""
+    issues = issues_for_member(member, linear_activity)
+    prs, issues = link_issues_to_prs(prs_for_member(member, github_activity), issues)
+    return {
+        "member_name": member.get("member_name"),
+        "github_username": member.get("github_username"),
+        "linear_email": member.get("linear_email"),
+        "pull_requests": prs,
+        "issues": issues,
+    }
 
 
 def prs_for_member(member, github_activity):
@@ -95,33 +123,9 @@ def link_issues_to_prs(prs, issues):
     return prs_out, issues_out
 
 
-def member_payload(member, github_activity, linear_activity):
-    """Assemble one member's combined LLM input from both ingestions."""
-    issues = issues_for_member(member, linear_activity)
-    prs, issues = link_issues_to_prs(prs_for_member(member, github_activity), issues)
-    return {
-        "member_name": member.get("member_name"),
-        "github_username": member.get("github_username"),
-        "linear_email": member.get("linear_email"),
-        "pull_requests": prs,
-        "issues": issues,
-    }
-
-
-def build_member_report(member, payload):
-    """Send one member's combined payload to the LLM; returns the summary."""
-    try:
-        resp = _get_client().chat.completions.create(
-            model=os.getenv("LLM_MODEL") or DEFAULT_MODEL,
-            messages=[
-                {"role": "system", "content": SYSTEM_PROMPT},
-                {"role": "user", "content": json.dumps(payload)},
-            ],
-        )
-        summary = resp.choices[0].message.content
-    except Exception as exc:
-        raise LLMError(f"LLM API call failed for {member.get('member_name')}: {exc}") from exc
-    return summary  # storage happens once, in build_report's loop
+def _activity_entry(activity, identifier):
+    """One user's entry from either ingestion, case-insensitive by key."""
+    return activity.get((identifier or "").lower(), {})
 
 
 def build_reports(members, github_activity: dict, linear_activity: dict) -> list:
