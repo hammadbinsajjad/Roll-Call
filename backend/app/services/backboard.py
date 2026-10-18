@@ -14,6 +14,7 @@ import hashlib
 import json
 
 import httpx
+import sentry_sdk
 
 from .. import config
 
@@ -59,6 +60,12 @@ def _first_str(data, keys):
     return None
 
 
+def _span_error(span, error_type):
+    """Mark an AI span failed (Sentry's error widgets read these)."""
+    span.set_status("internal_error")
+    span.set_data("error.type", error_type)
+
+
 def send_message(content: str, thread_id: str | None = None,
                  tools: list | None = None, tool_executor=None) -> tuple[str, str | None]:
     """Send one chat turn. Returns (reply_text, thread_id).
@@ -83,52 +90,80 @@ n    itself — we run tool_executor locally and submit outputs
         body["thread_id"] = thread_id
     if tools:
         body["tools"] = tools
-    try:
-        resp = _headerless_post("/threads/messages", body)
-    except httpx.HTTPError as exc:
-        raise BackboardError(f"Backboard request failed: {exc}") from exc
-    if resp.status_code >= 400:
-        raise BackboardError(f"Backboard returned {resp.status_code}")
-    data = resp.json() if resp.content else {}
-
-    for _ in range(5):  # bounded: model may chain tool rounds
-        if data.get("status") != "REQUIRES_ACTION" or not data.get("tool_calls"):
-            break
-        if not tool_executor:
-            raise BackboardError("tool call requested but no executor provided")
-        new_thread_id = data.get("thread_id") or thread_id
-        outputs = []
-        for call in data["tool_calls"]:
-            fn = call.get("function") or {}
-            args = fn.get("parsed_arguments") or fn.get("arguments") or {}
-            if isinstance(args, str):
-                try:
-                    args = json.loads(args)
-                except ValueError:
-                    args = {}
-            outputs.append({
-                "tool_call_id": call.get("tool_call_id") or call.get("id"),
-                "output": tool_executor(fn.get("name") or call.get("name"), args),
-            })
+    # manual instrumentation: Backboard has no Sentry integration, so this
+    # span is what puts the chat call in Sentry's Agents/Conversations views.
+    # One span per user turn — tool rounds inside it belong to the same turn.
+    # shortcut: docs show a start_span attributes= kwarg; it lands after
+    # 2.72.0, so set_data until the SDK catches up.
+    with sentry_sdk.start_span(
+        op="gen_ai.chat", name=f"chat {config.BACKBOARD_MODEL}"
+    ) as span:
+        span.set_data("gen_ai.operation.name", "chat")
+        span.set_data("gen_ai.provider.name", "backboard")
+        span.set_data("gen_ai.request.model", config.BACKBOARD_MODEL)
+        span.set_data("gen_ai.agent.name", "Backboard Chat")
+        span.set_data("gen_ai.system_instructions", config.CHAT_SYSTEM_PROMPT)
+        span.set_data(
+            "gen_ai.input.messages",
+            json.dumps([{"role": "user", "parts": [{"type": "text", "content": content}]}]),
+        )
+        if tools:
+            span.set_data("gen_ai.tool.definitions", json.dumps(tools))
         try:
-            resp = _headerless_post("/threads/tool-outputs", {
-                "thread_id": new_thread_id,
-                "tool_outputs": outputs,
-                "stream": False,
-            })
+            resp = _headerless_post("/threads/messages", body)
         except httpx.HTTPError as exc:
+            _span_error(span, type(exc).__name__)
             raise BackboardError(f"Backboard request failed: {exc}") from exc
         if resp.status_code >= 400:
+            _span_error(span, f"HTTP{resp.status_code}")
             raise BackboardError(f"Backboard returned {resp.status_code}")
         data = resp.json() if resp.content else {}
-        thread_id = new_thread_id
 
-    reply = _first_str(data, ("reply", "content", "text", "message"))
-    if not reply:
-        raise BackboardError(f"unexpected Backboard response shape: {list(data)!r}")
-    new_thread_id = data.get("thread_id")
-    if not new_thread_id and isinstance(data.get("thread"), dict):
-        new_thread_id = data["thread"].get("id")
+        for _ in range(5):  # bounded: model may chain tool rounds
+            if data.get("status") != "REQUIRES_ACTION" or not data.get("tool_calls"):
+                break
+            if not tool_executor:
+                _span_error(span, "MissingToolExecutor")
+                raise BackboardError("tool call requested but no executor provided")
+            new_thread_id = data.get("thread_id") or thread_id
+            outputs = []
+            for call in data["tool_calls"]:
+                fn = call.get("function") or {}
+                args = fn.get("parsed_arguments") or fn.get("arguments") or {}
+                if isinstance(args, str):
+                    try:
+                        args = json.loads(args)
+                    except ValueError:
+                        args = {}
+                outputs.append({
+                    "tool_call_id": call.get("tool_call_id") or call.get("id"),
+                    "output": tool_executor(fn.get("name") or call.get("name"), args),
+                })
+            try:
+                resp = _headerless_post("/threads/tool-outputs", {
+                    "thread_id": new_thread_id,
+                    "tool_outputs": outputs,
+                    "stream": False,
+                })
+            except httpx.HTTPError as exc:
+                _span_error(span, type(exc).__name__)
+                raise BackboardError(f"Backboard request failed: {exc}") from exc
+            if resp.status_code >= 400:
+                _span_error(span, f"HTTP{resp.status_code}")
+                raise BackboardError(f"Backboard returned {resp.status_code}")
+            data = resp.json() if resp.content else {}
+            thread_id = new_thread_id
+
+        reply = _first_str(data, ("reply", "content", "text", "message"))
+        if not reply:
+            _span_error(span, "UnexpectedResponseShape")
+            raise BackboardError(f"unexpected Backboard response shape: {list(data)!r}")
+        new_thread_id = data.get("thread_id")
+        if not new_thread_id and isinstance(data.get("thread"), dict):
+            new_thread_id = data["thread"].get("id")
+        span.set_data("gen_ai.output.messages", json.dumps(
+            [{"role": "assistant", "parts": [{"type": "text", "content": reply}]}]
+        ))
     return reply, new_thread_id
 
 

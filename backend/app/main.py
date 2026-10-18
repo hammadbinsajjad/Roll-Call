@@ -6,6 +6,7 @@ FastAPI's default {"detail": ...} would break the frontend.
 
 from contextlib import asynccontextmanager
 
+import sentry_sdk
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,6 +17,13 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from . import config, db
 from .routers import auth, chats, config as config_router, embed, member_summary
+
+# before app creation so the FastAPI integration (auto-enabled) patches the
+# app being built below; unset SENTRY_DSN = no-op, so local runs need no config
+sentry_sdk.init(
+    dsn=config.SENTRY_DSN,
+    traces_sample_rate=config.SENTRY_TRACES_SAMPLE_RATE,
+)
 
 
 @asynccontextmanager

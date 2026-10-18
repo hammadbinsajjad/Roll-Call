@@ -15,6 +15,13 @@ def _int(name: str, default: int) -> int:
         return default
 
 
+def _float(name: str, default: float) -> float:
+    try:
+        return float(os.getenv(name, default))
+    except ValueError:
+        return default
+
+
 JWT_SECRET = os.getenv("JWT_SECRET")  # required for auth — checked in app/auth.py
 
 MONGO_DB_CONNECTION_STRING = os.getenv("MONGO_DB_CONNECTION_STRING")  # required — checked in app/db.py
@@ -62,3 +69,6 @@ CHAT_SYSTEM_PROMPT = (
 CHAT_MAX_MESSAGES = _int("CHAT_MAX_MESSAGES", 50)   # per chat, lifetime
 CHAT_MAX_CHATS = _int("CHAT_MAX_CHATS", 10)         # per user, lifetime
 CHAT_DAILY_LIMIT = _int("CHAT_DAILY_LIMIT", 100)    # messages per user per UTC day
+
+SENTRY_DSN = os.getenv("SENTRY_DSN")                     # unset = Sentry stays a no-op
+SENTRY_TRACES_SAMPLE_RATE = _float("SENTRY_TRACES_SAMPLE_RATE", 1.0)  # lower in prod

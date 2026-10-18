@@ -6,3 +6,4 @@ pyjwt
 bcrypt
 slowapi
 python-dotenv
+sentry-sdk

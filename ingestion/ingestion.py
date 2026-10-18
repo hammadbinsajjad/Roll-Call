@@ -16,6 +16,9 @@ from datetime import UTC, date, datetime
 import requests
 from dotenv import load_dotenv
 
+import sentry_sdk
+from sentry_sdk.integrations.litellm import LiteLLMIntegration
+
 import db
 from github import collect_github_activity
 from linear import collect_linear_activity
@@ -36,6 +39,14 @@ def _ingestion_day():
 
 def main():
     load_dotenv()  # picks up GITHUB_TOKEN, LINEAR_TOKEN, OPENAI_API_KEY, LLM_* from ingestion/.env
+
+    # unset SENTRY_DSN = Sentry stays a no-op, so local runs need no config
+    sentry_sdk.init(
+        dsn=os.getenv("SENTRY_DSN"),
+        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+        send_default_pii=True,  # prompts are internal repo data; wanted for report debugging
+        integrations=[LiteLLMIntegration()],
+    )
 
     repos = db.get_repos()
     members = db.get_team_members()

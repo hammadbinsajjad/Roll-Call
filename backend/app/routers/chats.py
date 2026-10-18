@@ -6,6 +6,7 @@ import uuid
 from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from sentry_sdk.ai import set_conversation_id
 from slowapi import Limiter
 from slowapi.util import get_remote_address
 
@@ -85,6 +86,8 @@ def new_chat(request: Request, body: ChatMessageRequest, username: str = Depends
             body.message, tools=[DAILY_SUMMARIES_TOOL], tool_executor=_run_tool)
     except backboard.BackboardError:
         raise HTTPException(status_code=502, detail="AI service unavailable")
+    if thread_id:
+        set_conversation_id(thread_id)  # Sentry conversation = Backboard thread
 
     now = _now_iso()
     chat_id = uuid.uuid4().hex
@@ -112,6 +115,8 @@ def continue_chat(request: Request, chat_id: str, body: ChatMessageRequest,
     if chat.get("message_count", 0) >= config.CHAT_MAX_MESSAGES:
         raise HTTPException(status_code=429, detail="message limit for this chat reached")
 
+    if chat.get("thread_id"):
+        set_conversation_id(chat["thread_id"])  # Sentry conversation = Backboard thread
     try:
         reply, _ = backboard.send_message(
             body.message, thread_id=chat.get("thread_id"),
