@@ -1,6 +1,6 @@
 // The one config file. Change API_BASE at deploy; re-skin via THEME.
 window.ROLLCALL = {
-  API_BASE: 'http://localhost:8787',
+  API_BASE: 'https://roll-call-api-19yw.onrender.com',
 
   THEME: {
     '--bg': '#0A0F0C',
