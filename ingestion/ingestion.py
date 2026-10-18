@@ -10,9 +10,10 @@ Reports "today" (UTC) by default; set INGESTION_DAY=YYYY-MM-DD to report
 another day (used by the nightly GitHub workflow).
 """
 
-from datetime import date
 import os
+from datetime import UTC, date, datetime
 
+import requests
 from dotenv import load_dotenv
 
 import db
@@ -54,8 +55,47 @@ def main():
 
     for result in build_reports(members, github_activity, linear_activity):
         db.store_member_data(result["member"], result["input_data"], result["summary"])
+        embed_report(result["member"], result["input_data"], result["summary"])
         print(f"=== {result['member']['member_name']} ===")
         print(result["summary"])
+
+
+def embed_report(member, input_data, summary):
+    """POST the stored report to the backend's /embed so it lands in the
+    assistant's RAG store. Non-fatal — a failed embed must not stop the run.
+    Filename is stable per (day, member) so re-runs replace, not duplicate."""
+    url = os.getenv("BACKEND_EMBED_URL")
+    token = os.getenv("SERVICE_TOKEN")
+    if not url or not token:
+        return  # /embed not configured — skip
+    day = datetime.now(UTC).date().isoformat()  # must match store_member_data's date
+    payload = {
+        "data": {
+            "date": day,
+            "member_name": member.get("member_name"),
+            "github_username": member.get("github_username"),
+            "linear_email": member.get("linear_email"),
+            "input_data": input_data,
+            "summary": summary,
+        },
+        "filename": f"report-{day}-{member.get('github_username')}.json",
+    }
+    try:
+        endpoint = url.rstrip("/")
+        if not endpoint.endswith("/embed"):
+            endpoint += "/embed"  # accepts either base URL or the /embed path
+        resp = requests.post(
+            endpoint,
+            json=payload,
+            headers={"X-Service-Token": token},
+            timeout=90,
+        )
+        if resp.status_code >= 400:
+            print(f"embed: backend returned {resp.status_code} — {resp.text[:200]}")
+        else:
+            print(f"embed: uploaded {payload['filename']}")
+    except requests.RequestException as exc:
+        print(f"embed: request failed — {exc}")
 
 
 if __name__ == "__main__":

@@ -1,2 +1,8 @@
 fastapi
 uvicorn[standard]
+pymongo
+httpx
+pyjwt
+bcrypt
+slowapi
+python-dotenv

@@ -1,0 +1,42 @@
+name: Deploy frontend to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - frontend/**
+      - render.yaml
+      - .github/workflows/deploy-frontend.yml
+  workflow_dispatch: # manual trigger
+
+concurrency:
+  group: deploy-frontend
+  cancel-in-progress: false # never skip a deploy; Render queues overlapping ones (202)
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # No checkout/build here: the hook tells Render to publish the static
+      # site's latest commit on main straight from the repo.
+      # Required secret (render.com docs/deploy-hooks):
+      #   RENDER_DEPLOY_HOOK_URL_FRONTEND  (Render dashboard -> roll-call-frontend
+      #                                      site -> Settings -> Build & Deploy
+      #                                      -> Deploy Hooks)
+      - name: Trigger Render deploy hook
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL_FRONTEND }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "::error::Set the RENDER_DEPLOY_HOOK_URL_FRONTEND repo secret (Render dashboard -> the roll-call-frontend static site -> Settings -> Build & Deploy -> Deploy Hooks)."
+            exit 1
+          fi
+          # 200 = publish started, 202 = queued behind an in-progress publish;
+          # -f turns any other Render response (401 bad key, 404...) into a
+          # failed job so a broken hook doesn't pass silently.
+          curl -fsS --max-time 60 "$HOOK_URL"
