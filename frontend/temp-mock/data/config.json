@@ -1,0 +1,24 @@
+{
+  "repos": [
+    "acme/roll-call",
+    "acme/ingestion-pipeline",
+    "acme/infra"
+  ],
+  "team_members": [
+    {
+      "github_username": "alice-dev",
+      "linear_email": "alice@acme.dev",
+      "member_name": "Alice Nguyen"
+    },
+    {
+      "github_username": "bobbuilds",
+      "linear_email": "bob@acme.dev",
+      "member_name": "Bob Mart\u00ednez"
+    },
+    {
+      "github_username": "carol-codes",
+      "linear_email": "carol@acme.dev",
+      "member_name": "Carol Okafor"
+    }
+  ]
+}

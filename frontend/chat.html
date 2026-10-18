@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Chat — Roll-Call</title>
+  <script src="js/config.js"></script>
+  <script src="js/theme.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/tokens.css">
+  <link rel="stylesheet" href="css/base.css">
+  <link rel="stylesheet" href="css/components.css">
+</head>
+<body class="shell chat-page">
+  <header class="nav">
+    <div class="nav-inner">
+      <button class="nav-toggle" id="nav-toggle" aria-label="Menu">☰</button>
+      <a class="wordmark" href="summaries.html">Roll<span class="tick">-</span>Call</a>
+      <nav class="nav-links" id="nav-links">
+        <a href="summaries.html">Summaries</a>
+        <a href="config.html">Config</a>
+        <a href="chats.html" class="active">Chats</a>
+      </nav>
+      <div class="nav-right">
+        <a class="btn btn-ghost btn-sm" href="chats.html">← All chats</a>
+      </div>
+    </div>
+  </header>
+
+  <div class="chat-scroll" id="scroll"></div>
+
+  <div class="chat-composer-wrap">
+    <div class="chat-hint" id="hint">Ask about your team…</div>
+    <form class="chat-composer" id="composer">
+      <textarea class="input" id="message" rows="1" placeholder="Message Roll-Call…"></textarea>
+      <button class="btn btn-primary" type="submit" id="send">Send</button>
+    </form>
+  </div>
+
+  <script src="vendor/marked.min.js"></script>
+  <script src="vendor/purify.min.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/auth.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/markdown.js"></script>
+  <script src="js/page-chat.js"></script>
+</body>
+</html>

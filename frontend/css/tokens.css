@@ -1,0 +1,15 @@
+/* Fallback values for THEME (js/config.js). js/theme.js overrides these at load. */
+:root {
+  --bg: #0A0F0C;
+  --surface: #111915;
+  --surface-2: #182420;
+  --border: #223028;
+  --text: #E6EFE9;
+  --text-dim: #8CA396;
+  --accent: #34D399;
+  --accent-dim: #0F3B2E;
+  --danger: #F87171;
+  --radius: 10px;
+  --font: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+}
