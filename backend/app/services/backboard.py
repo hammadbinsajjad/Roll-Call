@@ -59,10 +59,14 @@ def _first_str(data, keys):
     return None
 
 
-def send_message(content: str, thread_id: str | None = None) -> tuple[str, str | None]:
+def send_message(content: str, thread_id: str | None = None,
+                 tools: list | None = None, tool_executor=None) -> tuple[str, str | None]:
     """Send one chat turn. Returns (reply_text, thread_id).
 
     New chats omit thread_id — Backboard creates the thread and returns it.
+    With tools: Backboard returns REQUIRES_ACTION and never executes anything
+n    itself — we run tool_executor locally and submit outputs
+    (POST /threads/tool-outputs) until the run completes.
     """
     if not config.BACKBOARD_ASSISTANT_ID:
         _config_error("BACKBOARD_ASSISTANT_ID")
@@ -77,6 +81,8 @@ def send_message(content: str, thread_id: str | None = None) -> tuple[str, str |
     }
     if thread_id:
         body["thread_id"] = thread_id
+    if tools:
+        body["tools"] = tools
     try:
         resp = _headerless_post("/threads/messages", body)
     except httpx.HTTPError as exc:
@@ -84,6 +90,39 @@ def send_message(content: str, thread_id: str | None = None) -> tuple[str, str |
     if resp.status_code >= 400:
         raise BackboardError(f"Backboard returned {resp.status_code}")
     data = resp.json() if resp.content else {}
+
+    for _ in range(5):  # bounded: model may chain tool rounds
+        if data.get("status") != "REQUIRES_ACTION" or not data.get("tool_calls"):
+            break
+        if not tool_executor:
+            raise BackboardError("tool call requested but no executor provided")
+        new_thread_id = data.get("thread_id") or thread_id
+        outputs = []
+        for call in data["tool_calls"]:
+            fn = call.get("function") or {}
+            args = fn.get("parsed_arguments") or fn.get("arguments") or {}
+            if isinstance(args, str):
+                try:
+                    args = json.loads(args)
+                except ValueError:
+                    args = {}
+            outputs.append({
+                "tool_call_id": call.get("tool_call_id") or call.get("id"),
+                "output": tool_executor(fn.get("name") or call.get("name"), args),
+            })
+        try:
+            resp = _headerless_post("/threads/tool-outputs", {
+                "thread_id": new_thread_id,
+                "tool_outputs": outputs,
+                "stream": False,
+            })
+        except httpx.HTTPError as exc:
+            raise BackboardError(f"Backboard request failed: {exc}") from exc
+        if resp.status_code >= 400:
+            raise BackboardError(f"Backboard returned {resp.status_code}")
+        data = resp.json() if resp.content else {}
+        thread_id = new_thread_id
+
     reply = _first_str(data, ("reply", "content", "text", "message"))
     if not reply:
         raise BackboardError(f"unexpected Backboard response shape: {list(data)!r}")

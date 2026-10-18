@@ -1,8 +1,9 @@
 """/chats, /chat, /chat/{chat_id} — chat listing and turn-taking over a
 Backboard thread. Message bodies live in Backboard; we store counts only."""
 
+import json
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from slowapi import Limiter
@@ -17,6 +18,40 @@ router = APIRouter()
 
 limiter = Limiter(key_func=lambda request: getattr(request.state, "username", None)
                   or get_remote_address(request))
+
+# The one tool the assistant gets: live team reports straight from daily_reports
+# (no HTTP, no auth — executed in-process by _run_tool below).
+DAILY_SUMMARIES_TOOL = {
+    "type": "function",
+    "function": {
+        "name": "get_daily_summaries",
+        "description": "Get every team member's work report for one day (UTC). "
+                       "Source of truth for who worked on what, and when.",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "date": {"type": "string", "description": "ISO date YYYY-MM-DD; omit for today"},
+            },
+            "required": [],
+        },
+    },
+}
+
+
+def _run_tool(name, args) -> str:
+    if name != "get_daily_summaries":
+        return json.dumps({"error": "unknown tool"})
+    raw = args.get("date") or db.today_iso()
+    try:
+        day = date.fromisoformat(raw).isoformat()
+    except (TypeError, ValueError):
+        return json.dumps({"error": "date must be ISO YYYY-MM-DD"})
+    reports = list(db.get_db()["daily_reports"].find(
+        {"date": day}, {"_id": 0, "date": 1, "member_name": 1, "github_username": 1,
+                        "linear_email": 1, "input_data": 1, "summary": 1}))
+    if not reports:
+        return json.dumps({"error": f"no reports ingested for {day}"})
+    return json.dumps(reports)
 
 
 def _check_daily_limit(username: str):
@@ -46,7 +81,8 @@ def new_chat(request: Request, body: ChatMessageRequest, username: str = Depends
         raise HTTPException(status_code=429, detail="chat limit reached")
 
     try:
-        reply, thread_id = backboard.send_message(body.message)
+        reply, thread_id = backboard.send_message(
+            body.message, tools=[DAILY_SUMMARIES_TOOL], tool_executor=_run_tool)
     except backboard.BackboardError:
         raise HTTPException(status_code=502, detail="AI service unavailable")
 
@@ -77,7 +113,9 @@ def continue_chat(request: Request, chat_id: str, body: ChatMessageRequest,
         raise HTTPException(status_code=429, detail="message limit for this chat reached")
 
     try:
-        reply, _ = backboard.send_message(body.message, thread_id=chat.get("thread_id"))
+        reply, _ = backboard.send_message(
+            body.message, thread_id=chat.get("thread_id"),
+            tools=[DAILY_SUMMARIES_TOOL], tool_executor=_run_tool)
     except backboard.BackboardError:
         raise HTTPException(status_code=502, detail="AI service unavailable")
 
