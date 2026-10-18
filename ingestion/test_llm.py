@@ -69,7 +69,7 @@ assert build_reports([], {}, {}) == []
 empty = build_reports([member], {}, {})
 assert empty == [{"member": member, "input_data": {
     "member_name": "Dev", "github_username": "DevUser", "linear_email": "DEV@x.com",
-    "pull_requests": [], "issues": []}, "summary": "No activity recorded today."}], empty
+    "pull_requests": [], "pushes": [], "issues": []}, "summary": "No activity recorded today."}], empty
 
 # live test: skipped when OPENAI_API_KEY is absent from the env or ingestion/.env
 from dotenv import load_dotenv

@@ -40,6 +40,7 @@ issue = {
 
 rec = issue_record(issue, TODAY)
 assert rec["identifier"] == "ROLL-1" and rec["state"] == "In Progress"
+assert rec["team"] == "Team X" and rec["touched_today"] is True
 assert rec["labels"] == ["bug"]
 assert [c["body"] for c in rec["comments"]] == ["other's comment"]  # only today's comments kept
 

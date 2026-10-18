@@ -20,8 +20,11 @@ MODEL = "unsloth/gemma-4-E4B-it-qat-GGUF:Q4_K_XL"  # litellm routes bare names t
 
 SYSTEM_PROMPT = (
     "You are Roll-Call's reporting assistant. For one team member you "
-    "receive, for a single day: their GitHub pull requests with today's "
-    "commits, and their Linear issues with today's comments. "
+    "receive, for a single day: their GitHub pull requests and commits "
+    "('touched_today': true), ongoing open pull requests and Linear issues "
+    "assigned to them that simply haven't been updated today ('touched_today': "
+    "false) — include those as ongoing work — plus direct pushes to branches "
+    "without a pull request (the 'pushes' list). "
     "Cross-links are precomputed: a linear issue is related to a PR when "
     "the issue name appears as a whole or as a substring in the PR title "
     "or branch name (case-insensitive); each PR lists the identifiers of "
@@ -77,11 +80,16 @@ def member_payload(member, github_activity, linear_activity):
     """Assemble one member's combined LLM input from both ingestions."""
     issues = issues_for_member(member, linear_activity)
     prs, issues = link_issues_to_prs(prs_for_member(member, github_activity), issues)
+    entry = _activity_entry(github_activity, member.get("github_username"))
+    pushes = []
+    for repo_name, repo_data in (entry.get("repos") or {}).items():
+        pushes.extend({"repo": repo_name, **c} for c in repo_data.get("pushes", []))
     return {
         "member_name": member.get("member_name"),
         "github_username": member.get("github_username"),
         "linear_email": member.get("linear_email"),
         "pull_requests": prs,
+        "pushes": pushes,
         "issues": issues,
     }
 
@@ -139,7 +147,7 @@ def build_reports(members, github_activity: dict, linear_activity: dict) -> list
     results = []
     for member in members:
         payload = member_payload(member, github_activity, linear_activity)
-        if not payload["pull_requests"] and not payload["issues"]:
+        if not payload["pull_requests"] and not payload["issues"] and not payload["pushes"]:
             summary = "No activity recorded today."
         else:
             summary = build_member_report(member, payload)

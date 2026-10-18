@@ -1,9 +1,15 @@
 """Linear issue activity collector (second ingestion source).
 
 Takes a list of user identifiers (emails primarily; non-email lines are
-matched against real/display names), pulls every issue touched today
-(GraphQL filter on updatedAt) with its comments, and maps each user to
-what they did:
+matched against real/display names), pulls two sets of issues:
+
+  - issues touched today (GraphQL filter on updatedAt), with today's comments
+  - issues assigned to the team in an active state (not Done/Canceled/
+    Backlog), regardless of date — multi-day in-progress work that hasn't
+    been touched today still counts as someone's work
+
+each issue is marked "touched_today" accordingly, and the collector maps
+each user to what they did:
 
     {
         "<user>": {
@@ -18,7 +24,7 @@ or wrote a comment on it today.
 
 import os
 import time
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import requests
 
@@ -128,7 +134,7 @@ def user_participates(user, issue_record):
     return False
 
 
-def issue_record(node, day):
+def issue_record(node, day, touched_today=True):
     """Slimmed-down issue dict with only today's comments."""
     comments = (node.get("comments") or {}).get("nodes", [])
     today_comments = todays_comments(comments, day)
@@ -137,12 +143,14 @@ def issue_record(node, day):
         "title": node["title"],
         "description": node.get("description"),
         "state": (node.get("state") or {}).get("name"),
+        "team": (node.get("team") or {}).get("name"),
         "assignee_email": (node.get("assignee") or {}).get("email"),
         "assignee_name": (node.get("assignee") or {}).get("displayName") or (node.get("assignee") or {}).get("name"),
         "creator_email": (node.get("creator") or {}).get("email"),
         "labels": [l["name"] for l in (node.get("labels") or {}).get("nodes", [])],
         "created_at": node["createdAt"],
         "updated_at": node["updatedAt"],
+        "touched_today": touched_today,
         "comments": today_comments,
     }
 
@@ -164,17 +172,65 @@ def issues_touched_today(day):
         after = conn["pageInfo"]["endCursor"]
 
 
+def issues_ongoing(user_emails):
+    """Issues assigned to the team's members in an active state (not Done,
+    Canceled or Backlog), regardless of date — ongoing work."""
+    query = """
+    query OngoingIssues($filter: IssueFilter!, $after: String) {
+      issues(first: 50, after: $after, filter: $filter, orderBy: updatedAt) {
+        nodes {
+          identifier
+          title
+          description
+          state { name }
+          assignee { email name displayName }
+          creator { email name displayName }
+          createdAt
+          updatedAt
+          team { name }
+          labels { nodes { name } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+    """
+    start, issues, after = None, [], None
+    while True:
+        data = _request(query, {
+            "filter": {
+                "assignee": {"email": {"in": user_emails}},
+                "state": {"name": {"nin": ["Done", "Canceled", "Backlog"]}},
+            },
+            "after": after,
+        })
+        conn = data["issues"]
+        issues.extend(conn["nodes"])
+        if not conn["pageInfo"]["hasNextPage"]:
+            return issues
+        after = conn["pageInfo"]["endCursor"]
+
+
 def collect_linear_activity(users, day=None):
     """Map every user id to their Linear issue work today.
 
     users: ["email", ...] — same ids db.get_team_members() delivers.
     """
-    day = day or datetime.now(timezone.utc).date()
+    day = day or datetime.now(UTC).date()
+    users_emails = [u for u in users if "@" in u]
     activity = {u.lower(): {"username": u, "teams": {}} for u in users}
 
-    for node in issues_touched_today(day):
-        issue = issue_record(node, day)
-        team = (node.get("team") or {}).get("name") or "unknown"
+    # issues touched today: full records with today's comments
+    records = [issue_record(n, day, touched_today=True) for n in issues_touched_today(day)]
+    # ongoing issues (assigned, active state): no date window, no comments;
+    # skip ones already captured above (dedupe by identifier)
+    seen = {r["identifier"] for r in records}
+    for node in issues_ongoing(users_emails):
+        if node["identifier"] in seen:
+            continue
+        records.append(issue_record(node, day, touched_today=False))
+
+    for issue in records:
+        team = issue.get("team") or "unknown"
         for user, entry in activity.items():
             if user_participates(user, issue):
                 entry["teams"].setdefault(team, {"issues": []})["issues"].append(issue)
