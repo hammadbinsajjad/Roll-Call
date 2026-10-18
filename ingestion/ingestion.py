@@ -41,9 +41,13 @@ def main():
     load_dotenv()  # picks up GITHUB_TOKEN, LINEAR_TOKEN, OPENAI_API_KEY, LLM_* from ingestion/.env
 
     # unset SENTRY_DSN = Sentry stays a no-op, so local runs need no config
+    try:
+        sample_rate = float(os.getenv("SENTRY_TRACES_SAMPLE_RATE") or "1.0")
+    except ValueError:
+        sample_rate = 1.0  # empty-string vars from GitHub Actions land here
     sentry_sdk.init(
         dsn=os.getenv("SENTRY_DSN"),
-        traces_sample_rate=float(os.getenv("SENTRY_TRACES_SAMPLE_RATE", "1.0")),
+        traces_sample_rate=sample_rate,
         send_default_pii=True,  # prompts are internal repo data; wanted for report debugging
         integrations=[LiteLLMIntegration()],
     )
