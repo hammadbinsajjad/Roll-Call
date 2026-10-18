@@ -95,6 +95,13 @@ def commits_today(repo, day):
     yield from _paged(f"/repos/{owner}/{name}/commits", {"since": start})
 
 
+def pr_numbers_for_commit(repo, sha):
+    """PRs that contain `sha` (empty for commits never part of a PR)."""
+    owner, name = repo.split("/", 1)
+    data, _ = _request(f"/repos/{owner}/{name}/commits/{sha}/pulls")
+    return [pr["number"] for pr in data]
+
+
 def todays_commits(commits, day):
     """Keep only commits authored on `day` (UTC), slimmed down. Filters on
     the author date, so commits authored earlier but pushed today are
@@ -175,10 +182,13 @@ def repo_activity_today(repo, users_lower, day):
     owner, name = repo.split("/", 1)
     base = f"/repos/{owner}/{name}"
 
-    # direct pushes to the default branch today (excluding PR-merge commits)
+    # direct pushes to the default branch today: real pushes are commits
+    # that belong to no PR (merge commits from PR merges and PR-branch
+    # commits that reached main through a merge are excluded — they're
+    # already counted with their PRs)
     raw_pushes = [
         c for c in commits_today(repo, day)
-        if len(c.get("parents", [])) <= 1
+        if len(c.get("parents", [])) <= 1 and not pr_numbers_for_commit(repo, c["sha"])
     ]
     pushes = todays_commits(raw_pushes, day)
 
