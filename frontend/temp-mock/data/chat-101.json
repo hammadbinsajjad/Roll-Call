@@ -1,0 +1,11 @@
+{
+  "chat_id": "101",
+  "messages": [
+    { "role": "user", "content": "Who is blocked today?", "created_at": "2025-01-15T09:12:00Z" },
+    { "role": "assistant", "content": "Nobody reported blockers in today's standups.\n\nClosest thing: **Bob Martínez** is waiting on a decision about whether `date` fields are UTC everywhere — he raised it in #eng-alarms.", "created_at": "2025-01-15T09:12:04Z" },
+    { "role": "user", "content": "What is Alice working on today?", "created_at": "2025-01-15T09:13:30Z" },
+    { "role": "assistant", "content": "Alice Nguyen plans to:\n\n- Ship the `member-summary` endpoint to staging\n- Pair with Bob on the Linear webhook signature check", "created_at": "2025-01-15T09:13:34Z" },
+    { "role": "user", "content": "Any PRs waiting for review?", "created_at": "2025-01-15T09:14:00Z" },
+    { "role": "assistant", "content": "From yesterday's notes: Alice reviewed PR #142 and #147. No explicit review requests were flagged as pending in the summaries.", "created_at": "2025-01-15T09:14:03Z" }
+  ]
+}

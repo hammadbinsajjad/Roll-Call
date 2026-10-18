@@ -1,0 +1,23 @@
+[
+  {
+    "member_name": "Alice Nguyen",
+    "github_username": "alice-dev",
+    "linear_email": "alice@acme.dev",
+    "date": "2025-01-15",
+    "summary": "## Yesterday\n\n- Finished the retry logic for the ingestion worker (`worker/retry.py`) — now uses exponential backoff with jitter.\n- Reviewed PR #142 and #147.\n\n## Today\n\n- Ship the `member-summary` endpoint to staging.\n- Pair with Bob on the Linear webhook signature check.\n\n## Blockers\n\nNone. Waiting on staging credentials from infra but not blocked."
+  },
+  {
+    "member_name": "Bob Martínez",
+    "github_username": "bobbuilds",
+    "linear_email": "bob@acme.dev",
+    "date": "2025-01-15",
+    "summary": "## Yesterday\n\n- Debugged the flaky `test_sync_members` test — turned out to be a timezone bug in the fixture, fixed in PR #151.\n\n## Today\n\n- Linear webhook signature verification.\n- Write runbook for the daily ingestion job.\n\n## Blockers\n\nNeed a decision on whether `date` should be UTC everywhere — raised in #eng-alarms."
+  },
+  {
+    "member_name": "Carol Okafor",
+    "github_username": "carol-codes",
+    "linear_email": "carol@acme.dev",
+    "date": "2025-01-15",
+    "summary": "## Yesterday\n\n- Set up the mock API contract for the frontend and synced the endpoint list with the backend.\n- Started on the chat composer component.\n\n## Today\n\n- Finish chat history pagination.\n- Triage the sprint backlog, groom items for next sprint.\n\n## Blockers\n\nNone."
+  }
+]
