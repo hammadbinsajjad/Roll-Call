@@ -70,8 +70,8 @@ def send_message(content: str, thread_id: str | None = None) -> tuple[str, str |
         "assistant_id": config.BACKBOARD_ASSISTANT_ID,
         "content": content,
         "system_prompt": config.CHAT_SYSTEM_PROMPT,
-        "provider": config.BACKBOARD_PROVIDER,
-        "model": config.BACKBOARD_MODEL,
+        "llm_provider": config.BACKBOARD_PROVIDER,   # field names per docs.backboard.io (threads/add-message)
+        "model_name": config.BACKBOARD_MODEL,
         "stream": False,
         "memory": "off",  # shared per-assistant memory would leak between users
     }
@@ -96,7 +96,9 @@ def send_message(content: str, thread_id: str | None = None) -> tuple[str, str |
 def get_thread_messages(thread_id: str) -> list[dict]:
     """Fetch a thread's history, mapped to [{role, content, created_at}]."""
     try:
-        resp = _get(f"/threads/{thread_id}/messages")
+        # GET /threads/{id} returns the thread object with a messages array
+        # (a /messages sub-path does not exist — probed live against the API)
+        resp = _get(f"/threads/{thread_id}")
     except httpx.HTTPError as exc:
         raise BackboardError(f"Backboard request failed: {exc}") from exc
     if resp.status_code >= 400:
