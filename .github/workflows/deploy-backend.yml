@@ -1,0 +1,42 @@
+name: Deploy backend to Render
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - backend/**
+      - render.yaml
+      - .github/workflows/deploy-backend.yml
+  workflow_dispatch: # manual trigger
+
+concurrency:
+  group: deploy-backend
+  cancel-in-progress: false # never skip a deploy; Render queues overlapping ones (202)
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      # No checkout/build here: the hook tells Render to build+deploy the
+      # service's latest commit on main straight from the repo.
+      # Required secret (render.com docs/deploy-hooks):
+      #   RENDER_DEPLOY_HOOK_URL_BACKEND  (Render dashboard -> roll-call-api
+      #                                     service -> Settings -> Build & Deploy
+      #                                     -> Deploy Hooks)
+      - name: Trigger Render deploy hook
+        env:
+          HOOK_URL: ${{ secrets.RENDER_DEPLOY_HOOK_URL_BACKEND }}
+        run: |
+          if [ -z "$HOOK_URL" ]; then
+            echo "::error::Set the RENDER_DEPLOY_HOOK_URL_BACKEND repo secret (Render dashboard -> the roll-call-api service -> Settings -> Build & Deploy -> Deploy Hooks)."
+            exit 1
+          fi
+          # 200 = deploy started, 202 = queued behind an in-progress deploy;
+          # -f turns any other Render response (401 bad key, 404...) into a
+          # failed job so a broken hook doesn't pass silently.
+          curl -fsS --max-time 60 "$HOOK_URL"

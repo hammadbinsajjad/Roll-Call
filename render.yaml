@@ -1,0 +1,41 @@
+# Render Blueprint for the backend web service.
+# Create it once in the dashboard: New -> Blueprint -> pick this repo; you'll
+# be prompted for each sync:false secret below (only at initial creation —
+# later ones are added in the service's Environment settings).
+services:
+  - type: web
+    name: roll-call-api
+    runtime: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    # 'off' (quoted: bare off parses as boolean) — deploys happen only via
+    # the GitHub Actions deploy hook, not on every push.
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.10
+      # secrets — prompted at Blueprint creation, then managed in the dashboard
+      - key: JWT_SECRET
+        sync: false
+      - key: MONGO_DB_CONNECTION_STRING
+        sync: false
+      - key: SERVICE_TOKEN
+        sync: false
+      - key: BACKBOARD_API_KEY
+        sync: false
+      - key: BACKBOARD_ASSISTANT_ID
+        sync: false
+
+  # Static site for the frontend — plain HTML/CSS/JS, so no buildCommand and
+  # staticPublishPath points straight at the source (relative to repo root).
+  # If a bundler/generator is added later: add buildCommand and repoint
+  # staticPublishPath at its output dir (e.g. ./frontend/build).
+  - type: web
+    name: roll-call-frontend
+    runtime: static
+    staticPublishPath: ./frontend
+    # 'off' (quoted: bare off parses as boolean) — deploys happen only via
+    # the GitHub Actions deploy hook, not on every push.
+    autoDeployTrigger: 'off'
