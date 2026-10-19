@@ -69,7 +69,11 @@ render.yaml     Render Blueprint — both services
 
 ## How I Built It
 
-One loop: **collect → summarize → store → ground → answer.**
+One loop: **collect → summarize → store → ground → answer.** The whole data flow:
+
+![System data flow design](https://raw.githubusercontent.com/hammadbinsajjad/Roll-Call/main/architecture/system-data-flow-design.png)
+
+The pieces:
 
 - **Nightly ingestion (GitHub Actions, 01:00 UTC).** Collectors pull GitHub PRs/commits/pushes and Linear issues/comments, cross-link issues to the PRs implementing them, and build one payload per member. Then **Gemma** writes each standup through `litellm`. This is the only AI part that can work fully locally — the chat can't run locally, because it depends on Backboard. During development I tested the ingestion with **Gemma 4 E4B** on my own machine; the hosted pipeline runs **Gemma 4 26B A4B via OpenRouter**. Members with no activity skip the LLM call entirely — quiet days cost nothing.
 - **Storage (MongoDB Atlas).** One `roll_call` database shared by the pipeline (writer) and the API (reader). Each report is also POSTed to the backend's `/embed` endpoint — machine-to-machine, secret-token guarded — which uploads it to Backboard, replacing (not duplicating) the old document on re-runs.
@@ -78,6 +82,8 @@ One loop: **collect → summarize → store → ground → answer.**
 - **Frontend.** Plain HTML/CSS/vanilla JS, no build step — deploys to static hosting as-is, with a "Terminal Green" dark theme.
 - **Hosting & deploys (Render + GitHub Actions).** `render.yaml` defines both services. Auto-deploys are off — pushes to `main` trigger Actions workflows that fire each service's deploy hook, so the same automation runs the data pipeline and the releases.
 - **Sentry Agent Tracing on both AI paths.** The ingestion Gemma calls flow through the `litellm` integration; the Backboard client (no Sentry integration of its own) got custom `gen_ai` span instrumentation with conversation IDs. Both AI paths show up as first-class traces in one dashboard.
+
+A small footnote I enjoy: even the tooling behind the project is open — the local Gemma test ran on **llama.cpp**, the architecture diagram above was drawn in **Drawy** (open source, from KDE), and the code was written primarily with **GLM 5.3, GLM 5.3 Flash, and Mimo V2.6 Pro** — all open-weight models too.
 
 Both sides, running live — the nightly ingestion runs, the deployments to Render, and both AI paths traced in Sentry:
 
