@@ -13,6 +13,20 @@ about who worked on what, and when.
 
 *(Source: `architecture/system-data-flow-design.png`)*
 
+## Screenshots
+
+**Summaries** — daily standup dashboard, one card per team member:
+
+![Summaries page](screenshots/summaries.png)
+
+**Config** — manage the tracked repos and team members:
+
+![Config page](screenshots/config.png)
+
+**Chat** — ask the agent about the team's work, grounded in the ingested data:
+
+![Chat page](screenshots/chat.png)
+
 ## How it works
 
 1. **Ingestion** (`ingestion/`) — a scheduled GitHub Actions workflow runs nightly at
