@@ -8,8 +8,12 @@ window.RollCallAuth.requireAuth();
   const sendBtn = document.getElementById('send');
   const hint = document.getElementById('hint');
 
-  const chatId = new URLSearchParams(location.search).get('id');
+
   let busy = false;
+
+  function getChatId() {
+    return new URLSearchParams(location.search).get('id');
+  }
 
   // Static nav: highlight chats, wire the burger.
   (function () {
@@ -52,8 +56,9 @@ window.RollCallAuth.requireAuth();
     setBusy(true);
     try {
       let data;
-      if (chatId) {
-        data = await API.post('/chat/' + encodeURIComponent(chatId), { message });
+      const id = getChatId();
+      if (id) {
+        data = await API.post('/chat/' + encodeURIComponent(id), { message });
       } else {
         data = await API.post('/chat', { message });
         // New chat: adopt the server-assigned id so a refresh continues it.
@@ -90,12 +95,13 @@ window.RollCallAuth.requireAuth();
   });
 
   async function load() {
-    if (!chatId) {
+    const id = getChatId();
+    if (!id) {
       hint.textContent = 'Ask about your team…';
       return;
     }
     try {
-      const chat = await API.get('/chat/' + encodeURIComponent(chatId));
+      const chat = await API.get('/chat/' + encodeURIComponent(id));
       (chat.messages || []).forEach((m) => bubble(m.role, m.content));
     } catch (err) {
       UI.toast(err.message, true);
